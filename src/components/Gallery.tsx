@@ -34,9 +34,11 @@ interface GalleryProps {
   onFirstProjectComplete?: () => void;
   onResetFirstTime?: () => void;
   uploadCompleted?: boolean;
+  mockProjects?: Project[];
+  userCredits?: { current: number; max: number };
 }
 
-const mockProjects: Project[] = [
+const defaultMockProjects: Project[] = [
   {
     id: '1',
     name: 'Sala de Estar Clássica',
@@ -55,10 +57,10 @@ const mockProjects: Project[] = [
   },
 ];
 
-export default function Gallery({ 
+export default function Gallery({
   onOpenProject,
   onCreateNewProject,
-  onOpenSettings, 
+  onOpenSettings,
   onOpenPricing,
   onNavigateToWelcome,
   onStartTour,
@@ -68,7 +70,9 @@ export default function Gallery({
   isFirstTime = false,
   onFirstProjectComplete,
   onResetFirstTime,
-  uploadCompleted = false
+  uploadCompleted = false,
+  mockProjects = defaultMockProjects,
+  userCredits = { current: 5, max: 5 }
 }: GalleryProps) {
   const [activeNav, setActiveNav] = useState('galeria');
   const [searchQuery, setSearchQuery] = useState('');

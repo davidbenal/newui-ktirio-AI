@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import Gallery from './components/Gallery';
+import GalleryConnected from './components/GalleryConnected';
 import Editor from './components/Editor';
 import Settings from './components/Settings';
 import Pricing from './components/Pricing';
@@ -276,7 +276,7 @@ export default function App() {
             onSkipToApp={handleSkipToApp}
           />
         ) : currentView === 'gallery' ? (
-          <Gallery 
+          <GalleryConnected
             onOpenProject={handleOpenProject}
             onCreateNewProject={handleCreateNewProject}
             onOpenSettings={handleOpenSettings}
