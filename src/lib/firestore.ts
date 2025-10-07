@@ -97,6 +97,9 @@ export async function updateUser(userId: string, data: Partial<User>) {
   })
 }
 
+// Alias para updateUser (usado em componentes)
+export const updateUserProfile = updateUser;
+
 // ====================================
 // PROJECT OPERATIONS
 // ====================================

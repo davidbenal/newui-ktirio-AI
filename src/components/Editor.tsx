@@ -26,6 +26,10 @@ import ProgressiveHint from './ProgressiveHint';
 import CreditsWarningHint from './CreditsWarningHint';
 import CreditLimitModal from './CreditLimitModal';
 import ProgressChecklist, { ChecklistProgress } from './ProgressChecklist';
+import { useImageGeneration } from '../hooks/useImageGeneration';
+import { useFirebaseUser } from '../hooks/useFirebaseUser';
+import { updateProject } from '../lib/firestore';
+import type { ReferenceImage } from '../types/editor';
 
 interface EditorProps {
   projectId: string | null;
@@ -39,46 +43,36 @@ interface EditorProps {
 
 type Tool = 'select' | 'brush' | 'eraser' | 'move';
 
-interface Version {
-  id: string;
-  name: string;
-  timestamp: string;
-  thumbnail: string;
-}
-
-const mockVersions: Version[] = [
-  {
-    id: '1',
-    name: 'Imagem Original',
-    timestamp: '18:36:31',
-    thumbnail: exampleImage,
-  },
-];
-
-export default function Editor({ 
-  projectId, 
-  onBack, 
-  onOpenUpgradeModal, 
-  onUploadComplete, 
+export default function Editor({
+  projectId,
+  onBack,
+  onOpenUpgradeModal,
+  onUploadComplete,
   shouldOpenUploadOnMount = false,
   isFirstTimeUser = false,
   onFirstProjectComplete
 }: EditorProps) {
+  const { user } = useFirebaseUser();
+
+  // Hook de geração de imagens
+  const imageGen = useImageGeneration(
+    projectId || 'new-project',
+    [] // Histórico inicial vazio, será carregado do Firestore
+  );
+
   const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [activeTool, setActiveTool] = useState<Tool>('select');
   const [brushSize, setBrushSize] = useState(50);
-  const [prompt, setPrompt] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
   const [projectName, setProjectName] = useState(projectId ? 'Sala de Estar Clássica' : 'Novo Projeto');
   const [showProjectMenu, setShowProjectMenu] = useState(false);
-  const [activeVersion, setActiveVersion] = useState('1');
   const [isPanning, setIsPanning] = useState(false);
   const [isLoadingEditor, setIsLoadingEditor] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showCreditLimitModal, setShowCreditLimitModal] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const { showSuccess, showError, showInfo } = useToast();
 
   // Progress Checklist State
@@ -143,51 +137,80 @@ export default function Editor({
     { id: 'eraser' as Tool, icon: Eraser, label: 'Borracha' },
   ];
 
-  const handleGenerate = () => {
-    // Verificar se há créditos disponíveis
-    if (creditsUsed >= creditsTotal) {
+  // Função para extrair máscara do canvas
+  const getMaskData = (): string | null => {
+    if (!maskCanvasRef.current) return null;
+    return maskCanvasRef.current.toDataURL('image/png');
+  };
+
+  // Função para salvar thumbnail antes de voltar
+  const handleBack = async () => {
+    if (projectId && imageGen.currentImage) {
+      try {
+        await updateProject(projectId, {
+          thumbnail: imageGen.currentImage
+        });
+        console.log('✅ Thumbnail saved for project:', projectId);
+      } catch (error) {
+        console.error('❌ Error saving thumbnail:', error);
+      }
+    }
+    onBack();
+  };
+
+  const handleGenerate = async () => {
+    // Validações
+    if (!user) {
+      showError('Faça login para gerar imagens');
+      return;
+    }
+
+    if (!imageGen.baseImage) {
+      showError('Carregue uma imagem primeiro');
+      setShowUploadModal(true);
+      return;
+    }
+
+    if (!imageGen.prompt.trim()) {
+      showError('Descreva o que deseja gerar');
+      return;
+    }
+
+    if (user.credits <= 0) {
       setShowCreditLimitModal(true);
       return;
     }
 
-    if (!prompt.trim()) {
-      showError(
-        'Prompt vazio',
-        'Por favor, descreva a cena que deseja gerar.',
-      );
+    // Verificar se desenhou máscara
+    const maskData = getMaskData();
+    if (!maskData) {
+      showError('Desenhe a área que deseja editar');
       return;
     }
 
-    setIsGenerating(true);
-    
     // Marca estilo como selecionado na primeira geração
     if (!checklistProgress.selectedStyle) {
       setChecklistProgress(prev => ({ ...prev, selectedStyle: true }));
     }
-    
-    // Simular processamento
-    setTimeout(() => {
-      setIsGenerating(false);
+
+    // Gerar com IA
+    const result = await imageGen.handleGenerate(
+      getMaskData,
+      imageGen.prompt,
+      imageGen.objectImages,
+      true // Otimizar prompt
+    );
+
+    if (result.success) {
+      // Atualizar checklist
+      setChecklistProgress(prev => ({ ...prev, generatedImage: true }));
       setImagesGenerated(prev => prev + 1);
       setCreditsUsed(prev => prev + 1);
-      
-      // Marca imagem como gerada
-      setChecklistProgress(prev => ({ ...prev, generatedImage: true }));
-      
-      showSuccess(
-        'Imagem gerada com sucesso!',
-        'Sua nova variação está disponível no histórico.'
-      );
-      
-      // Se completou todas as etapas, marca first project como completo
-      if (isFirstTimeUser && checklistProgress.uploadedPhoto) {
-        setTimeout(() => {
-          if (onFirstProjectComplete) {
-            onFirstProjectComplete();
-          }
-        }, 2000);
+
+      if (isFirstTimeUser && onFirstProjectComplete) {
+        onFirstProjectComplete();
       }
-    }, 3000);
+    }
   };
 
   // Mostrar skeleton durante carregamento
@@ -204,7 +227,7 @@ export default function Editor({
             {/* Botão Voltar e Dropdown do Projeto */}
             <div className="flex items-center gap-2">
               <button
-                onClick={onBack}
+                onClick={handleBack}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <ChevronLeft className="w-5 h-5 text-gray-600" />
@@ -259,8 +282,8 @@ export default function Editor({
             <div className="bg-gray-100/70 border border-gray-200/80 rounded-xl p-3">
               <label className="text-xs text-gray-600 mb-2 block">IMAGEM DO PROJETO</label>
               <div className="aspect-video bg-gray-200 rounded-lg overflow-hidden mb-2">
-                {projectId ? (
-                  <img src={exampleImage} alt="Projeto" className="w-full h-full object-cover" />
+                {imageGen.baseImage ? (
+                  <img src={imageGen.baseImage} alt="Projeto" className="w-full h-full object-cover" />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-400">
                     <div className="text-center">
@@ -275,42 +298,118 @@ export default function Editor({
                   setShowUploadModal(true);
                 }}
                 className={`w-full rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-2 transition-colors ${
-                  projectId
+                  imageGen.baseImage
                     ? 'border border-gray-300 hover:bg-gray-50 text-gray-700'
                     : 'bg-gray-900 hover:bg-gray-800 text-white'
                 }`}
               >
                 <Upload className="w-4 h-4" />
-                {projectId ? 'Alterar imagem' : 'Fazer upload'}
+                {imageGen.baseImage ? 'Alterar imagem' : 'Fazer upload'}
               </button>
             </div>
 
             {/* Referências do Projeto */}
             <div className="bg-gray-100/70 border border-gray-200/80 rounded-xl p-3">
-              <label className="text-xs text-gray-600 mb-2 block">REFERÊNCIAS DO PROJETO</label>
-              <button className="w-full border-2 border-dashed border-gray-300 hover:border-gray-400 rounded-lg px-3 py-6 text-sm text-gray-500 flex items-center justify-center gap-2 transition-colors">
-                <Plus className="w-4 h-4" />
-              </button>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-gray-600 block">REFERÊNCIAS DO PROJETO</label>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        imageGen.handleAddReferenceImage(
+                          ev.target?.result as string,
+                          file.name,
+                          []
+                        );
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }}
+                  className="hidden"
+                  id="reference-upload"
+                />
+                <label
+                  htmlFor="reference-upload"
+                  className="text-xs text-gray-900 hover:underline cursor-pointer"
+                >
+                  + Adicionar
+                </label>
+              </div>
+
+              {/* Lista de Referências */}
+              {imageGen.objectImages.length > 0 ? (
+                <div className="space-y-2">
+                  {imageGen.objectImages.map((ref) => (
+                    <div
+                      key={ref.id}
+                      className="flex items-center gap-2 p-2 bg-white rounded-lg border border-gray-200"
+                    >
+                      <img
+                        src={ref.url}
+                        alt={ref.name}
+                        className="w-12 h-12 object-cover rounded"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-900 truncate">
+                          {ref.name}
+                        </p>
+                        {ref.types.length > 0 && (
+                          <p className="text-xs text-gray-500">
+                            {ref.types.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => imageGen.handleDeleteReferenceImage(ref.id)}
+                        className="text-gray-400 hover:text-red-600 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <button className="w-full border-2 border-dashed border-gray-300 hover:border-gray-400 rounded-lg px-3 py-6 text-sm text-gray-500 flex items-center justify-center gap-2 transition-colors">
+                  <Plus className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
             {/* Prompt da Cena */}
             <div className="bg-gray-100/70 border border-gray-200/80 rounded-xl p-3 flex-1 flex flex-col">
               <label className="text-xs text-gray-600 mb-2 block">PROMPT DA CENA</label>
               <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
+                value={imageGen.prompt}
+                onChange={(e) => imageGen.setPrompt(e.target.value)}
                 placeholder="Descreva o prompt da cena aqui... Use '/' para adicionar uma referência."
                 className="flex-1 w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300 resize-none"
+                disabled={imageGen.isLoading}
               />
+
+              {/* Progress */}
+              {imageGen.generationProgress && (
+                <p className="mt-2 text-xs text-gray-600">
+                  {imageGen.generationProgress}
+                </p>
+              )}
             </div>
 
-            {/* Botão Gerar Imagem */}
+            {/* Botão Gerar Imagem - Sempre visível */}
             <button
               onClick={handleGenerate}
-              disabled={isGenerating}
-              className="w-full bg-gray-900 hover:bg-gray-800 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-lg px-4 py-3 flex items-center justify-center gap-2 transition-colors"
+              disabled={!imageGen.canGenerate || imageGen.isLoading}
+              style={{
+                backgroundColor: imageGen.canGenerate && !imageGen.isLoading ? '#101828' : '#e5e7eb',
+                color: imageGen.canGenerate && !imageGen.isLoading ? '#ffffff' : '#9ca3af',
+                cursor: imageGen.canGenerate && !imageGen.isLoading ? 'pointer' : 'not-allowed'
+              }}
+              className="w-full rounded-lg px-4 py-3 flex items-center justify-center gap-2 transition-colors font-medium"
             >
-              {isGenerating ? (
+              {imageGen.isLoading ? (
                 <>
                   <Loader2 className="w-5 h-5 animate-spin" />
                   Gerando...
@@ -361,19 +460,40 @@ export default function Editor({
           onMouseUp={() => setIsPanning(false)}
           onMouseLeave={() => setIsPanning(false)}
         >
-          <div className="absolute inset-0 flex items-center justify-center">
-            <img
-              src={exampleImage}
-              alt="Canvas"
-              className="max-w-full max-h-full shadow-2xl"
-              style={{ pointerEvents: 'none' }}
-            />
-          </div>
+          {imageGen.currentImage ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              {/* Imagem Base */}
+              <img
+                src={imageGen.currentImage}
+                alt="Canvas"
+                className="max-w-full max-h-full shadow-2xl"
+                style={{ pointerEvents: 'none' }}
+              />
 
-          {/* Mensagem de Ajuda */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-white/90 backdrop-blur-sm rounded-lg px-4 py-2 text-sm text-gray-600 shadow-lg">
-            Clique em uma usando uma vizinha ferramenta no canvas para pintar!
-          </div>
+              {/* Canvas de Máscara (Overlay) */}
+              <canvas
+                ref={maskCanvasRef}
+                className="absolute max-w-full max-h-full"
+                style={{
+                  pointerEvents: activeTool === 'brush' || activeTool === 'eraser' ? 'auto' : 'none',
+                  cursor: activeTool === 'brush' ? 'crosshair' : activeTool === 'eraser' ? 'cell' : 'default'
+                }}
+              />
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center p-8">
+                <p className="text-gray-500 mb-4">Nenhuma imagem carregada</p>
+                <button
+                  onClick={() => setShowUploadModal(true)}
+                  className="px-6 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                >
+                  Carregar Imagem
+                </button>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Barra de Ferramentas Flutuante */}
@@ -432,39 +552,85 @@ export default function Editor({
             <div className="flex items-center justify-between">
               <h3 className="text-gray-900">Histórico da Sessão</h3>
             </div>
-            <p className="text-xs text-gray-500">1 versões salvas nessa sessão</p>
+            <p className="text-xs text-gray-500">{imageGen.history.length} versões salvas nessa sessão</p>
 
             {/* Lista de Versões */}
             <div className="flex-1 overflow-auto">
-              <div className="flex flex-col gap-2">
-                {mockVersions.map((version) => (
-                  <div
-                    key={version.id}
-                    className={`group border rounded-xl overflow-hidden cursor-pointer transition-all ${
-                      activeVersion === version.id
-                        ? 'border-gray-800 bg-gray-50'
-                        : 'border-gray-200 hover:border-gray-400'
-                    }`}
-                    onClick={() => setActiveVersion(version.id)}
-                  >
-                    <div className="aspect-video bg-gray-100">
-                      <img
-                        src={version.thumbnail}
-                        alt={version.name}
-                        className="w-full h-full object-cover"
-                      />
+              <div className="flex flex-col gap-5">
+                {imageGen.history.map((imageUrl, index) => {
+                  const isSelected = imageGen.currentImage === imageUrl;
+                  return (
+                    <div
+                      key={index}
+                      className={`group cursor-pointer transition-all ${
+                        isSelected ? '' : 'hover:opacity-80'
+                      }`}
+                      onClick={() => imageGen.handleSelectHistory(imageUrl)}
+                    >
+                      {isSelected ? (
+                        /* Versão Selecionada - Grande com Border */
+                        <div className="border-2 border-[#1e2939] rounded-[14px] overflow-hidden bg-gray-50">
+                          <div className="aspect-video bg-gray-100">
+                            <img
+                              src={imageUrl}
+                              alt={`Versão ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div className="p-3 flex items-start justify-between">
+                            <div>
+                              <h4 className="text-sm font-normal text-[#101828]">
+                                {index === 0 ? 'Imagem Original' : `Versão ${index}`}
+                              </h4>
+                              <p className="text-xs text-[#6a7282]">
+                                {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </p>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                imageGen.handleDownload(imageUrl);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-all"
+                            >
+                              <Download className="w-4 h-4 text-gray-600" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Versão Não Selecionada - Pequena sem Border Destacado */
+                        <div className="border border-[#1e2939] rounded-[14px] overflow-hidden bg-gray-50 flex gap-2.5 p-1">
+                          <div className="w-20 h-[68px] bg-gray-100 rounded-[14px] overflow-hidden shrink-0">
+                            <img
+                              src={imageUrl}
+                              alt={`Versão ${index + 1}`}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                          <div className="flex-1 py-3 pr-3 flex items-start justify-between">
+                            <div>
+                              <h4 className="text-sm font-normal text-[#101828]">
+                                {index === 0 ? 'Imagem Original' : `Versão ${index}`}
+                              </h4>
+                              <p className="text-xs text-[#6a7282]">
+                                {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </p>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                imageGen.handleDownload(imageUrl);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-all"
+                            >
+                              <Download className="w-4 h-4 text-gray-600" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="p-3 flex items-start justify-between">
-                      <div>
-                        <h4 className="text-sm text-gray-900">{version.name}</h4>
-                        <p className="text-xs text-gray-500">{version.timestamp}</p>
-                      </div>
-                      <button className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-100 rounded transition-all">
-                        <EllipsisVertical className="w-4 h-4 text-gray-600" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </aside>
@@ -483,7 +649,7 @@ export default function Editor({
       </div>
 
       {/* Modal de Carregamento */}
-      {isGenerating && (
+      {imageGen.isLoading && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 shadow-2xl flex flex-col items-center gap-4 max-w-sm">
             <Loader2 className="w-12 h-12 text-gray-900 animate-spin" />
@@ -507,19 +673,9 @@ export default function Editor({
         delay={500}
       />
 
-      {/* Hint 2: Comparação antes/depois - Trigger: Segunda imagem gerada */}
+      {/* Hint 2: Histórico - Trigger: Segunda imagem gerada */}
       <ProgressiveHint
-        isVisible={imagesGenerated >= 2 && !hasSeenHint('comparison-slider')}
-        onDismiss={() => markHintAsSeen('comparison-slider')}
-        text="Arraste para comparar antes e depois"
-        position="bottom"
-        delay={1000}
-        autoDismissDelay={8000}
-      />
-
-      {/* Hint 3: Histórico - Trigger: Terceira imagem gerada */}
-      <ProgressiveHint
-        isVisible={imagesGenerated >= 3 && !hasSeenHint('history-saved') && rightPanelOpen}
+        isVisible={imagesGenerated >= 2 && !hasSeenHint('history-saved') && rightPanelOpen}
         onDismiss={() => markHintAsSeen('history-saved')}
         text="Todas as suas criações ficam salvas aqui"
         position="left"
@@ -686,31 +842,49 @@ export default function Editor({
             <p className="text-gray-600 mb-6">
               Selecione uma imagem para começar a editar
             </p>
-            
-            <div className="border-2 border-dashed border-gray-300 rounded-xl p-12 mb-6 text-center hover:border-blue-500 transition-colors cursor-pointer">
+
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+
+                // Validar tipo
+                if (!file.type.startsWith('image/')) {
+                  showError('Por favor, selecione uma imagem válida');
+                  return;
+                }
+
+                // Converter para base64 e salvar
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                  const imageDataUrl = ev.target?.result as string;
+                  imageGen.handleSetBaseImage(imageDataUrl);
+
+                  setShowUploadModal(false);
+                  if (onUploadComplete) onUploadComplete();
+
+                  // Atualizar checklist
+                  setChecklistProgress(prev => ({ ...prev, uploadedPhoto: true }));
+                  showSuccess('Imagem carregada com sucesso!');
+                };
+                reader.readAsDataURL(file);
+              }}
+              className="hidden"
+              id="main-image-upload"
+            />
+
+            <label
+              htmlFor="main-image-upload"
+              className="block border-2 border-dashed border-gray-300 rounded-xl p-12 mb-6 text-center hover:border-blue-500 transition-colors cursor-pointer"
+            >
               <Upload className="w-12 h-12 text-gray-400 mx-auto mb-3" />
               <p className="text-gray-600 mb-1">Clique para fazer upload</p>
               <p className="text-sm text-gray-400">ou arraste e solte aqui</p>
-            </div>
+            </label>
 
             <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  // Simular upload completo
-                  if (onUploadComplete) {
-                    onUploadComplete();
-                  }
-                  
-                  // Atualizar checklist progress
-                  setChecklistProgress(prev => ({ ...prev, uploadedPhoto: true }));
-                  
-                  setShowUploadModal(false);
-                  showSuccess('Upload concluído!', 'Sua imagem foi carregada com sucesso.');
-                }}
-                className="flex-1 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-              >
-                Simular Upload
-              </button>
               <button
                 onClick={() => setShowUploadModal(false)}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"

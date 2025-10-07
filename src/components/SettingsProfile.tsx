@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Upload, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Upload, Trash2, LogOut } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -7,6 +7,12 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Separator } from './ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { useFirebaseUser } from '@/hooks/useFirebaseUser';
+import { updateUserProfile } from '@/lib/firestore';
+import { updateProfile } from 'firebase/auth';
+import { auth } from '@/lib/firebase';
+import { useToast } from './ToastProvider';
+import { uploadImage, validateImageFile } from '@/lib/storage';
 
 interface ProfileData {
   fullName: string;
@@ -19,20 +25,47 @@ interface ProfileData {
   dateFormat: string;
 }
 
-const initialData: ProfileData = {
-  fullName: 'João Silva',
-  username: 'joaosilva',
-  email: 'joao@email.com',
-  bio: '',
-  avatarUrl: '',
-  language: 'pt-BR',
-  theme: 'light',
-  dateFormat: 'DD/MM/AAAA',
-};
+interface SettingsProfileProps {
+  onSignOut?: () => void;
+}
 
-export default function SettingsProfile() {
-  const [formData, setFormData] = useState<ProfileData>(initialData);
+export default function SettingsProfile({ onSignOut }: SettingsProfileProps) {
+  const { user, loading } = useFirebaseUser();
+  const { showSuccess, showError } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [formData, setFormData] = useState<ProfileData>({
+    fullName: '',
+    username: '',
+    email: '',
+    bio: '',
+    avatarUrl: '',
+    language: 'pt-BR',
+    theme: 'light',
+    dateFormat: 'DD/MM/AAAA',
+  });
   const [hasChanges, setHasChanges] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  // Carregar dados do usuário do Firebase
+  // Prioriza dados do Firestore (name, avatar) sobre Firebase Auth (displayName, photoURL)
+  useEffect(() => {
+    if (user && !isInitialized) {
+      console.log('📥 Loading user data (initial):', user);
+      setFormData({
+        fullName: user.name || user.displayName || '',
+        username: user.email?.split('@')[0] || '',
+        email: user.email || '',
+        bio: user.bio || '',
+        avatarUrl: user.avatar || user.photoURL || '',
+        language: user.preferences?.language || 'pt-BR',
+        theme: user.preferences?.theme || 'light',
+        dateFormat: user.preferences?.dateFormat || 'DD/MM/AAAA',
+      });
+      setIsInitialized(true);
+    }
+  }, [user, isInitialized]);
 
   const handleInputChange = (field: keyof ProfileData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -40,19 +73,105 @@ export default function SettingsProfile() {
   };
 
   const handleCancel = () => {
-    setFormData(initialData);
+    if (user) {
+      setFormData({
+        fullName: user.name || user.displayName || '',
+        username: user.email?.split('@')[0] || '',
+        email: user.email || '',
+        bio: user.bio || '',
+        avatarUrl: user.avatar || user.photoURL || '',
+        language: user.preferences?.language || 'pt-BR',
+        theme: user.preferences?.theme || 'light',
+        dateFormat: user.preferences?.dateFormat || 'DD/MM/AAAA',
+      });
+    }
     setHasChanges(false);
   };
 
-  const handleSave = () => {
-    // Implementar lógica de salvar
-    console.log('Saving profile data:', formData);
-    setHasChanges(false);
+  const handleSave = async () => {
+    if (!user) return;
+
+    setIsSaving(true);
+    try {
+      console.log('💾 Saving profile data:', formData);
+      console.log('💾 Current user before save:', user);
+
+      const dataToSave = {
+        name: formData.fullName,
+        displayName: formData.fullName,
+        avatar: formData.avatarUrl,
+        photoURL: formData.avatarUrl,
+        bio: formData.bio,
+        preferences: {
+          language: formData.language,
+          theme: formData.theme,
+          dateFormat: formData.dateFormat,
+        },
+      };
+
+      console.log('💾 Data being saved to Firestore:', dataToSave);
+
+      // Atualizar Firebase Auth profile
+      if (auth.currentUser) {
+        await updateProfile(auth.currentUser, {
+          displayName: formData.fullName,
+          photoURL: formData.avatarUrl,
+        });
+        console.log('✅ Firebase Auth updated');
+      }
+
+      // Atualizar Firestore
+      await updateUserProfile(user.id, dataToSave);
+      console.log('✅ Firestore updated successfully');
+
+      showSuccess('Perfil atualizado com sucesso!');
+      setHasChanges(false);
+    } catch (error) {
+      console.error('❌ Error saving profile:', error);
+      showError('Erro ao salvar perfil. Tente novamente.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // Validar arquivo
+    const validation = validateImageFile(file);
+    if (!validation.valid) {
+      showError(validation.error || 'Arquivo inválido');
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      // Upload para Storage
+      const avatarUrl = await uploadImage(file, user.id, 'avatars');
+
+      // Atualizar formData
+      setFormData((prev) => ({ ...prev, avatarUrl }));
+      setHasChanges(true);
+
+      showSuccess('Foto carregada! Clique em "Salvar alterações" para confirmar.');
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      showError('Erro ao fazer upload da foto.');
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatar = () => {
+    setFormData((prev) => ({ ...prev, avatarUrl: '' }));
+    setHasChanges(true);
+    showSuccess('Foto removida! Clique em "Salvar alterações" para confirmar.');
   };
 
   const handleDeleteAccount = () => {
-    // Implementar lógica de excluir conta
-    console.log('Delete account');
+    // TODO: Implementar modal de confirmação
+    showError('Funcionalidade em desenvolvimento');
   };
 
   const getInitials = (name: string) => {
@@ -89,11 +208,30 @@ export default function SettingsProfile() {
             </Avatar>
 
             <div className="flex flex-col gap-2">
-              <Button variant="outline" size="sm" className="h-8">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleAvatarUpload}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploadingAvatar}
+              >
                 <Upload className="w-4 h-4 mr-2" />
-                Alterar foto
+                {isUploadingAvatar ? 'Carregando...' : 'Alterar foto'}
               </Button>
-              <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 text-destructive hover:text-destructive"
+                onClick={handleRemoveAvatar}
+                disabled={!formData.avatarUrl || isUploadingAvatar}
+              >
                 Remover
               </Button>
             </div>
@@ -180,11 +318,11 @@ export default function SettingsProfile() {
 
           {/* Action Buttons */}
           <div className="flex justify-end gap-3 mt-6">
-            <Button variant="ghost" onClick={handleCancel}>
+            <Button variant="ghost" onClick={handleCancel} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button onClick={handleSave} disabled={!hasChanges}>
-              Salvar alterações
+            <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
+              {isSaving ? 'Salvando...' : 'Salvar alterações'}
             </Button>
           </div>
         </div>
@@ -272,10 +410,25 @@ export default function SettingsProfile() {
           </p>
         </div>
 
-        <div 
+        <div
           className="bg-destructive/5 rounded-2xl p-6 border border-destructive/20"
           style={{ boxShadow: '0 4px 12px rgba(212, 24, 61, 0.12)' }}
         >
+          {/* Sair da Conta */}
+          <div className="flex items-center justify-between pb-4 mb-4 border-b border-destructive/10">
+            <div className="max-w-[480px]">
+              <p className="text-sm text-foreground">Sair da conta</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Desconecte-se desta conta. Você pode fazer login novamente a qualquer momento.
+              </p>
+            </div>
+            <Button variant="outline" onClick={onSignOut} className="border-destructive/20 text-destructive hover:bg-destructive/10">
+              <LogOut className="w-4 h-4 mr-2" />
+              Sair
+            </Button>
+          </div>
+
+          {/* Excluir Conta */}
           <div className="flex items-center justify-between">
             <div className="max-w-[480px]">
               <p className="text-sm text-foreground">Excluir conta</p>

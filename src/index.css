@@ -4671,3 +4671,19 @@ html {
     height: 0;
   }
 }
+
+/* Garantir altura completa da viewport */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Permitir scroll apenas nas páginas que precisam */
+body {
+  overflow: hidden;
+}
+
+#root {
+  overflow: auto;
+}

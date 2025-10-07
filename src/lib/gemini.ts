@@ -1,6 +1,14 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
-const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GOOGLE_GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY!)
+// Support both Vite (import.meta.env) and Node.js (process.env)
+const getApiKey = () => {
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    return import.meta.env.VITE_GOOGLE_GEMINI_API_KEY
+  }
+  return process.env.VITE_GOOGLE_GEMINI_API_KEY
+}
+
+const genAI = new GoogleGenerativeAI(getApiKey() || '')
 
 /**
  * Gera descrição de design de interiores usando Gemini

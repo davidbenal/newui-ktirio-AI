@@ -2,14 +2,13 @@ import { useFirebaseUser } from "@/hooks/useFirebaseUser";
 import { useProjects } from "@/hooks/useProjects";
 import { useState } from "react";
 import Gallery from "./Gallery";
-import { UserButton } from "@clerk/clerk-react";
 
 /**
- * Connected Gallery component that integrates with Firebase and Clerk
+ * Connected Gallery component that integrates with Firebase
  * This wraps the original Gallery component with real data
  */
 export default function GalleryConnected(props: any) {
-  const { user, loading: userLoading, clerkUser } = useFirebaseUser();
+  const { user, loading: userLoading } = useFirebaseUser();
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "favorites" | "archived">(
     "all"
@@ -28,35 +27,61 @@ export default function GalleryConnected(props: any) {
     isArchived: activeTab === "archived" ? true : undefined,
   });
 
-  const handleCreateNewProject = async () => {
-    if (!user) return;
+  const handleCreateNewProject = async (shouldOpenUpload = false) => {
+    console.log('🟢 GalleryConnected.handleCreateNewProject called with shouldOpenUpload:', shouldOpenUpload);
+    console.log('🟢 user:', user);
+    console.log('🟢 projects.length:', projects.length);
 
-    // Check project limit for free users
-    if (user.plan === "free" && projects.length >= 1) {
-      // Open upgrade modal
-      if (props.onUpgradeModalChange) {
-        props.onUpgradeModalChange(true);
-      }
+    if (!user) {
+      console.error('❌ No user found, returning early');
       return;
     }
 
+    // TODO: Re-enable project limits for free users in production
+    // For now, allow unlimited projects during development
+    // if (user && user.plan === "free" && projects.length >= 5) {
+    //   console.log('⚠️ Free user project limit reached, opening upgrade modal');
+    //   if (props.onUpgradeModalChange) {
+    //     props.onUpgradeModalChange(true);
+    //   }
+    //   return;
+    // }
+
     try {
+      console.log('🟢 Calling createProject...');
       const projectId = await createProject(`Novo Projeto ${projects.length + 1}`);
+      console.log('🟢 Project created with ID:', projectId);
+
       if (props.onCreateNewProject) {
-        props.onCreateNewProject();
+        console.log('🟢 Calling props.onCreateNewProject with shouldOpenUpload:', shouldOpenUpload);
+        props.onCreateNewProject(shouldOpenUpload); // Pass the parameter
+      } else {
+        console.error('❌ props.onCreateNewProject is not defined!');
       }
     } catch (error) {
-      console.error("Error creating project:", error);
+      console.error("❌ Error creating project:", error);
+      // Mesmo com erro, navegar pro editor se tiver Clerk user
+      if (clerkUser && props.onCreateNewProject) {
+        console.log('⚠️ Error creating project in Firestore, but navigating to editor anyway');
+        props.onCreateNewProject(shouldOpenUpload);
+      }
     }
   };
 
-  // Convert Firebase projects to Gallery format
-  const mockProjects = projects.map((p) => ({
-    id: p.id,
-    name: p.name,
-    date: p.updatedAt.toLocaleDateString("pt-BR"),
-    thumbnail: p.thumbnail,
-  }));
+  // Convert Firebase projects to Gallery format, or use local projects if Firebase is empty
+  const mockProjects = projects.length > 0
+    ? projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        date: p.updatedAt instanceof Date
+          ? p.updatedAt.toLocaleDateString("pt-BR")
+          : new Date(p.updatedAt).toLocaleDateString("pt-BR"),
+        thumbnail: p.thumbnail,
+      }))
+    : props.localProjects || [];
+
+  console.log('🔵 GalleryConnected - mockProjects:', mockProjects);
+  console.log('🔵 Firebase projects:', projects.length, 'Local projects:', props.localProjects?.length || 0);
 
   // Show loading state
   if (userLoading || projectsLoading) {
@@ -71,21 +96,7 @@ export default function GalleryConnected(props: any) {
   }
 
   return (
-    <div className="relative">
-      {/* User button in top-right corner */}
-      <div className="absolute right-4 top-4 z-50">
-        <UserButton
-          appearance={{
-            elements: {
-              avatarBox: "w-10 h-10",
-              userButtonPopoverCard: "shadow-xl",
-              userButtonPopoverActionButton:
-                "hover:bg-gray-100 transition-colors",
-            },
-          }}
-        />
-      </div>
-
+    <div className="relative h-full">
       <Gallery
         {...props}
         mockProjects={mockProjects}

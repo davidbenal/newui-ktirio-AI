@@ -12,10 +12,16 @@ import SoftPaywall, { SoftPaywallVariant } from './components/SoftPaywall';
 import BuyCreditsModal from './components/BuyCreditsModal';
 import PurchaseSuccessModal from './components/PurchaseSuccessModal';
 import { ToastProvider } from './components/ToastProvider';
+import Login from './components/Login';
+import SignUp from './components/SignUp';
+import { AuthProvider, useAuthContext } from './components/AuthProvider';
 
 type ViewType = 'welcome' | 'gallery' | 'editor' | 'settings' | 'pricing' | 'upgrade-success' | 'upgrade-canceled';
+type AuthView = 'login' | 'signup';
 
-export default function App() {
+function AppContent() {
+  const { user, loading: authLoading, signInWithGoogle, signUpWithEmail, signOut } = useAuthContext();
+  const [authView, setAuthView] = useState<AuthView>('login');
   const [currentView, setCurrentView] = useState<ViewType>('gallery');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [shouldOpenUpgradeModal, setShouldOpenUpgradeModal] = useState(false);
@@ -38,6 +44,14 @@ export default function App() {
     receiptNumber: string;
     sessionId: string;
   } | null>(null);
+
+  // Temporary local state to track created projects (until Firestore permissions are fixed)
+  const [localProjects, setLocalProjects] = useState<Array<{
+    id: string;
+    name: string;
+    date: string;
+    thumbnail?: string;
+  }>>([]);
 
   // Check URL for upgrade success/canceled/welcome/credits routes
   useEffect(() => {
@@ -81,10 +95,22 @@ export default function App() {
     setCurrentView('editor');
   };
 
-  const handleCreateNewProject = () => {
+  const handleCreateNewProject = (shouldOpenUpload = false) => {
     setSelectedProject(null); // Null indica novo projeto
-    // Se for first-time user, abrir modal de upload automaticamente
-    setShouldOpenUploadOnMount(isFirstTimeUser && !hasCompletedFirstProject);
+
+    // Adicionar projeto ao estado local temporariamente
+    const newProject = {
+      id: `local-${Date.now()}`,
+      name: `Novo Projeto ${localProjects.length + 1}`,
+      date: new Date().toLocaleDateString('pt-BR'),
+      thumbnail: undefined
+    };
+
+    setLocalProjects(prev => [...prev, newProject]);
+    console.log('🟢 Local project created:', newProject);
+
+    // Abrir modal de upload se solicitado OU se for first-time user
+    setShouldOpenUploadOnMount(shouldOpenUpload || (isFirstTimeUser && !hasCompletedFirstProject));
     setCurrentView('editor');
   };
 
@@ -256,9 +282,72 @@ export default function App() {
     // setBannerVariant('trial-ended');
   }, []);
 
+  const handleGoogleSignIn = async () => {
+    try {
+      await signInWithGoogle();
+    } catch (error) {
+      console.error('Error signing in with Google:', error);
+    }
+  };
+
+  const handleEmailSignUp = async (name: string, email: string, password: string) => {
+    try {
+      await signUpWithEmail(email, password, name);
+    } catch (error) {
+      console.error('Error signing up with email:', error);
+    }
+  };
+
+  const handleEmailContinue = async (email: string) => {
+    // For now, just log the email. You can implement password flow later
+    console.log('Email login:', email);
+    // TODO: Implement email/password flow with password input
+  };
+
+  const handleSignUpClick = () => {
+    setAuthView('signup');
+  };
+
+  const handleSignInClick = () => {
+    setAuthView('login');
+  };
+
+  // Show loading state while checking authentication
+  if (authLoading) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-neutral-50">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+          <p className="mt-4 text-gray-600">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show login/signup screen if not authenticated
+  if (!user) {
+    if (authView === 'signup') {
+      return (
+        <SignUp
+          onGoogleSignUp={handleGoogleSignIn}
+          onEmailSignUp={handleEmailSignUp}
+          onSignInClick={handleSignInClick}
+        />
+      );
+    }
+
+    return (
+      <Login
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailContinue={handleEmailContinue}
+        onSignUpClick={handleSignUpClick}
+      />
+    );
+  }
+
   return (
     <ToastProvider>
-      <div className={`size-full ${currentView === 'settings' || currentView === 'pricing' || currentView === 'upgrade-success' || currentView === 'upgrade-canceled' || currentView === 'welcome' ? 'bg-white' : 'bg-[#F7F7F8]'}`}>
+      <div className={`h-full flex flex-col ${currentView === 'settings' || currentView === 'pricing' || currentView === 'upgrade-success' || currentView === 'upgrade-canceled' || currentView === 'welcome' ? 'bg-white' : 'bg-[#F7F7F8]'}`}>
         {/* Trial Ended Banner - Aparece em todas as views exceto Welcome */}
         {bannerVariant && !bannerDismissed && currentView !== 'welcome' && (
           <TrialEndedBanner
@@ -269,14 +358,15 @@ export default function App() {
             totalCredits={5}
           />
         )}
-        {currentView === 'welcome' ? (
-          <WelcomeScreen 
-            userName={userName}
-            onStartTour={handleStartTour}
-            onSkipToApp={handleSkipToApp}
-          />
-        ) : currentView === 'gallery' ? (
-          <GalleryConnected
+        <div className="flex-1 min-h-0">
+          {currentView === 'welcome' ? (
+            <WelcomeScreen
+              userName={userName}
+              onStartTour={handleStartTour}
+              onSkipToApp={handleSkipToApp}
+            />
+          ) : currentView === 'gallery' ? (
+            <GalleryConnected
             onOpenProject={handleOpenProject}
             onCreateNewProject={handleCreateNewProject}
             onOpenSettings={handleOpenSettings}
@@ -292,10 +382,11 @@ export default function App() {
             onFirstProjectComplete={handleFirstProjectComplete}
             onResetFirstTime={handleResetFirstTime}
             uploadCompleted={uploadCompleted}
+            localProjects={localProjects}
           />
         ) : currentView === 'editor' ? (
-          <Editor 
-            projectId={selectedProject} 
+          <Editor
+            projectId={selectedProject}
             onBack={handleBackToGallery}
             onOpenUpgradeModal={(context) => {
               setUpgradeModalContext(context);
@@ -312,13 +403,13 @@ export default function App() {
         ) : currentView === 'upgrade-success' ? (
           <UpgradeSuccess onContinue={handleBackToGallery} />
         ) : currentView === 'upgrade-canceled' ? (
-          <UpgradeCanceled 
+          <UpgradeCanceled
             onBack={handleBackToGallery}
             onTryAgain={handleTryAgainFromCanceled}
           />
         ) : (
-          <Settings 
-            onBack={handleBackFromSettings} 
+          <Settings
+            onBack={handleBackFromSettings}
             onOpenPricing={handleOpenPricing}
             onOpenUpgradeModal={handleOpenUpgradeModalFromSettings}
             onNavigateToWelcome={handleNavigateToWelcome}
@@ -328,8 +419,10 @@ export default function App() {
             onShowBanner={handleShowBanner}
             onShowSoftPaywall={handleShowSoftPaywall}
             onOpenBuyCredits={handleOpenBuyCredits}
+            onSignOut={signOut}
           />
         )}
+        </div>
 
         {/* Soft Paywall Overlays */}
         {softPaywallVariant && (
@@ -400,5 +493,13 @@ export default function App() {
         />
       </div>
     </ToastProvider>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 }

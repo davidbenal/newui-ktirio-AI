@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronLeft, User, CreditCard, Bell, Shield, Lock, Receipt, Settings as SettingsIcon } from 'lucide-react';
+import { ChevronLeft, User, CreditCard, Bell, Shield, Lock, Receipt, Settings as SettingsIcon, UserCog } from 'lucide-react';
 import SettingsProfile from './SettingsProfile';
 import SettingsPlanUsage from './SettingsPlanUsage';
 import SettingsNotifications from './SettingsNotifications';
@@ -7,9 +7,11 @@ import SettingsSecurity from './SettingsSecurity';
 import SettingsPrivacy from './SettingsPrivacy';
 import SettingsBilling from './SettingsBilling';
 import SettingsDeveloper from './SettingsDeveloper';
+import SettingsAdmin from './SettingsAdmin';
 import FeatureLockModal, { FeatureType } from './FeatureLockModal';
 import { BannerVariant } from './TrialEndedBanner';
 import { SoftPaywallVariant } from './SoftPaywall';
+import { useFirebaseUser } from '@/hooks/useFirebaseUser';
 
 interface SettingsProps {
   onBack: () => void;
@@ -22,12 +24,13 @@ interface SettingsProps {
   onShowBanner?: (variant: BannerVariant) => void;
   onShowSoftPaywall?: (variant: SoftPaywallVariant) => void;
   onOpenBuyCredits?: () => void;
+  onSignOut?: () => void;
 }
 
-type SettingsTab = 'perfil' | 'plano' | 'notificacoes' | 'seguranca' | 'privacidade' | 'faturamento' | 'developer';
+type SettingsTab = 'perfil' | 'plano' | 'notificacoes' | 'seguranca' | 'privacidade' | 'faturamento' | 'developer' | 'admin';
 
-export default function Settings({ 
-  onBack, 
+export default function Settings({
+  onBack,
   onOpenPricing,
   onOpenUpgradeModal,
   onNavigateToWelcome,
@@ -36,8 +39,10 @@ export default function Settings({
   isFirstTimeUser = false,
   onShowBanner,
   onShowSoftPaywall,
-  onOpenBuyCredits
+  onOpenBuyCredits,
+  onSignOut
 }: SettingsProps) {
+  const { user } = useFirebaseUser();
   const [activeTab, setActiveTab] = useState<SettingsTab>('perfil');
   const [featureLockModal, setFeatureLockModal] = useState<{ isOpen: boolean; feature: FeatureType | null }>({
     isOpen: false,
@@ -48,6 +53,8 @@ export default function Settings({
     setFeatureLockModal({ isOpen: true, feature });
   };
 
+  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
+
   const navItems = [
     { id: 'perfil' as SettingsTab, icon: User, label: 'Perfil' },
     { id: 'plano' as SettingsTab, icon: CreditCard, label: 'Plano e Uso' },
@@ -55,14 +62,15 @@ export default function Settings({
     { id: 'seguranca' as SettingsTab, icon: Shield, label: 'Segurança' },
     { id: 'privacidade' as SettingsTab, icon: Lock, label: 'Privacidade' },
     { id: 'faturamento' as SettingsTab, icon: Receipt, label: 'Faturamento' },
+    ...(isAdmin ? [{ id: 'admin' as SettingsTab, icon: UserCog, label: 'Admin', isAdmin: true }] : []),
     { id: 'developer' as SettingsTab, icon: SettingsIcon, label: 'Developer', isDev: true },
   ];
 
   return (
-    <div className="min-h-screen bg-white p-6 flex flex-col">
+    <div className="h-full bg-white flex flex-col overflow-hidden">
       {/* HEADER - Card Flutuante */}
-      <header 
-        className="bg-white rounded-2xl border border-black/[0.06] flex items-center px-6 py-4 gap-4 mb-6"
+      <header
+        className="bg-white rounded-2xl border border-black/[0.06] flex items-center px-6 py-4 gap-4 m-6 mb-0 shrink-0"
         style={{ boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)' }}
       >
         {/* Botão Voltar */}
@@ -79,13 +87,12 @@ export default function Settings({
       </header>
 
       {/* BODY */}
-      <div className="flex flex-1 gap-6">
+      <div className="flex gap-6 p-6 flex-1 min-h-0">
         {/* SIDEBAR - Card Flutuante */}
-        <aside 
-          className="w-60 bg-[#FAFAFA] rounded-2xl border border-black/[0.06] flex flex-col gap-1 p-4 sticky top-6 self-start"
-          style={{ 
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
-            minHeight: 'calc(100vh - 140px)'
+        <aside
+          className="w-60 bg-[#FAFAFA] rounded-2xl border border-black/[0.06] flex flex-col gap-1 p-4 shrink-0 h-full"
+          style={{
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)'
           }}
         >
           <nav className="flex flex-col gap-1" role="navigation" aria-label="Navegação de configurações">
@@ -118,10 +125,10 @@ export default function Settings({
           </nav>
         </aside>
 
-        {/* CONTENT AREA */}
-        <main className="flex-1">
-          <div className="max-w-[800px]">
-            {activeTab === 'perfil' && <SettingsProfile />}
+        {/* CONTENT AREA - Com scroll */}
+        <main className="flex-1 min-w-0 overflow-y-auto">
+          <div className="max-w-[800px] pb-6">
+            {activeTab === 'perfil' && <SettingsProfile onSignOut={onSignOut} />}
 
             {activeTab === 'plano' && <SettingsPlanUsage onOpenPricing={onOpenPricing} />}
 
@@ -132,6 +139,8 @@ export default function Settings({
             {activeTab === 'privacidade' && <SettingsPrivacy />}
 
             {activeTab === 'faturamento' && <SettingsBilling />}
+
+            {activeTab === 'admin' && <SettingsAdmin />}
 
             {activeTab === 'developer' && (
               <SettingsDeveloper

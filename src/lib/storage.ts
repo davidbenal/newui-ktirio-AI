@@ -7,7 +7,7 @@ import { storage } from './firebase'
 export async function uploadImage(
   file: File,
   userId: string,
-  folder: 'projects' | 'versions' = 'projects'
+  folder: 'projects' | 'versions' | 'avatars' = 'projects'
 ): Promise<string> {
   try {
     const timestamp = Date.now()

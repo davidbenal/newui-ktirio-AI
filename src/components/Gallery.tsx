@@ -12,6 +12,8 @@ import FirstProjectGuide from './FirstProjectGuide';
 import ProgressChecklist, { ChecklistProgress } from './ProgressChecklist';
 import ContextualTooltip, { TooltipType } from './ContextualTooltip';
 import SuccessCelebration from './SuccessCelebration';
+import { useFirebaseUser } from '../hooks/useFirebaseUser';
+import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
 
 interface Project {
   id: string;
@@ -74,6 +76,7 @@ export default function Gallery({
   mockProjects = defaultMockProjects,
   userCredits = { current: 5, max: 5 }
 }: GalleryProps) {
+  const { user } = useFirebaseUser();
   const [activeNav, setActiveNav] = useState('galeria');
   const [searchQuery, setSearchQuery] = useState('');
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -81,6 +84,17 @@ export default function Gallery({
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
   const [upgradeModalContext, setUpgradeModalContext] = useState<UpgradeModalContext>('credits');
   const { showSuccess, showError, showWarning, showInfo } = useToast();
+
+  // Helper para obter iniciais do nome
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    return name
+      .split(' ')
+      .map((n) => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
   // First-time user experience state
   const [showFirstProjectGuide, setShowFirstProjectGuide] = useState(isFirstTime);
@@ -144,13 +158,19 @@ export default function Gallery({
 
   // Handlers for first-time guide
   const handleUploadPhoto = () => {
+    console.log('🔵 handleUploadPhoto called');
+    console.log('🔵 onCreateNewProject:', onCreateNewProject);
+
     // Marca que criou o projeto (primeiro passo)
     setChecklistProgress(prev => ({ ...prev, createdProject: true }));
     setShowFirstProjectGuide(false);
-    
-    // Cria o projeto e vai para o editor
+
+    // Cria o projeto e vai para o editor COM modal de upload aberto
     if (onCreateNewProject) {
-      onCreateNewProject();
+      console.log('🔵 Calling onCreateNewProject(true)');
+      onCreateNewProject(true); // Pass true to open upload modal
+    } else {
+      console.error('❌ onCreateNewProject is not defined!');
     }
   };
 
@@ -181,8 +201,8 @@ export default function Gallery({
   ];
 
   // Filtrar projetos baseado na navegação ativa e busca
-  // Se for primeira vez, mostrar galeria vazia
-  const projectsToShow = isFirstTime ? [] : mockProjects;
+  // Mostrar projetos se existirem, independente de isFirstTime
+  const projectsToShow = mockProjects;
   
   const filteredProjects = projectsToShow.filter((project) => {
     const matchesSearch = project.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -202,9 +222,9 @@ export default function Gallery({
   };
 
   return (
-    <div className="size-full flex gap-4 p-4">
+    <div className="flex h-full gap-4 p-4 bg-[#F7F7F8]">
       {/* Barra Lateral Esquerda */}
-      <aside className="w-64 bg-white rounded-2xl shadow-lg p-4 flex flex-col gap-4 shrink-0">
+      <aside className="w-64 bg-white rounded-2xl shadow-lg p-4 flex flex-col gap-4 shrink-0 h-full">
         {/* Logo */}
         <div className="px-2 py-1">
           <h2 className="text-gray-900">KTÍRIO</h2>
@@ -245,7 +265,7 @@ export default function Gallery({
         </nav>
 
         {/* Seção de Pastas */}
-        <div className="flex-1 pt-4 border-t border-gray-200/50">
+        <div className="pt-4 border-t border-gray-200/50">
           <div className="flex items-center justify-between px-2 mb-2">
             <span className="text-xs text-gray-500 uppercase tracking-wider">Pastas</span>
             <button className="w-4 h-4 flex items-center justify-center text-gray-400 hover:text-gray-600">
@@ -257,6 +277,9 @@ export default function Gallery({
             <span className="text-sm">Projeto Recentes</span>
           </button>
         </div>
+
+        {/* Spacer - empurra elementos abaixo para o bottom */}
+        <div className="flex-1"></div>
 
         {/* Sistema de Créditos */}
         <div className="bg-gray-100/70 border border-gray-200/80 rounded-xl p-3">
@@ -291,12 +314,15 @@ export default function Gallery({
             onClick={onOpenSettings}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-gray-600 hover:bg-gray-100 transition-colors"
           >
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-              <User className="w-4 h-4 text-gray-600" />
-            </div>
+            <Avatar className="w-8 h-8">
+              <AvatarImage src={user?.avatar || user?.photoURL || ''} />
+              <AvatarFallback className="bg-gray-200 text-gray-600 text-xs">
+                {getInitials(user?.name || user?.displayName || user?.email || 'Usuário')}
+              </AvatarFallback>
+            </Avatar>
             <div className="flex-1 text-left">
-              <p className="text-sm text-gray-900">Minha Conta</p>
-              <p className="text-xs text-gray-500">usuario@email.com</p>
+              <p className="text-sm text-gray-900">{user?.name || user?.displayName || 'Minha Conta'}</p>
+              <p className="text-xs text-gray-500">{user?.email || 'usuario@email.com'}</p>
             </div>
             <Settings className="w-4 h-4 text-gray-400" />
           </button>
@@ -304,7 +330,7 @@ export default function Gallery({
       </aside>
 
       {/* Conteúdo Principal */}
-      <main className="flex-1 bg-white rounded-2xl shadow-lg p-8 overflow-auto">
+      <main className="flex-1 h-full overflow-auto bg-white rounded-2xl shadow-lg p-8">
         {/* Cabeçalho */}
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-gray-900">Galeria</h1>
