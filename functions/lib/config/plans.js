@@ -63,7 +63,7 @@ exports.PLANS = {
         icon: '⭐',
         credits: 100,
         price: 4990, // R$ 49,90
-        stripePriceId: 'price_SUBSTITUA_PELO_ID_DO_STRIPE', // ⚠️ SUBSTITUIR após criar no Stripe
+        stripePriceId: 'price_1SFpHkRubDJ4RApyCypVbIoK', // ✅ Configurado
         interval: 'month',
         features: {
             generations: 100,
@@ -81,7 +81,7 @@ exports.PLANS = {
         icon: '💎',
         credits: 500,
         price: 25990, // R$ 259,90
-        stripePriceId: 'price_SUBSTITUA_PELO_ID_DO_STRIPE', // ⚠️ SUBSTITUIR após criar no Stripe
+        stripePriceId: 'price_1SFpINRubDJ4RApyjucRqblu', // ✅ Configurado
         interval: 'month',
         features: {
             generations: 500,
@@ -109,7 +109,7 @@ exports.CREDIT_PACKS = {
         icon: '📦',
         credits: 50,
         price: 3990, // R$ 39,90
-        stripePriceId: 'price_SUBSTITUA_PELO_ID_DO_STRIPE', // ⚠️ SUBSTITUIR após criar no Stripe
+        stripePriceId: 'price_1SDIOkRubDJ4RApyfVWUIE1O', // ✅ Configurado
         validityDays: 90, // Expira em 90 dias
         discount: 0,
     },
@@ -120,7 +120,7 @@ exports.CREDIT_PACKS = {
         icon: '📦',
         credits: 150,
         price: 9990, // R$ 99,90
-        stripePriceId: 'price_SUBSTITUA_PELO_ID_DO_STRIPE', // ⚠️ SUBSTITUIR após criar no Stripe
+        stripePriceId: 'price_1SDIOCRubDJ4RApy47OSAiWV', // ✅ Configurado
         validityDays: 120, // Expira em 120 dias
         discount: 10, // 10% de desconto vs comprar individual
     },
@@ -131,7 +131,7 @@ exports.CREDIT_PACKS = {
         icon: '📦',
         credits: 300,
         price: 17990, // R$ 179,90
-        stripePriceId: 'price_SUBSTITUA_PELO_ID_DO_STRIPE', // ⚠️ SUBSTITUIR após criar no Stripe
+        stripePriceId: 'price_1SDINURubDJ4RApyOW8A61K7', // ✅ Configurado
         validityDays: null, // Sem expiração
         discount: 20, // 20% de desconto vs comprar individual
     },
