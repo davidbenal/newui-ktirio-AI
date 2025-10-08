@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createCustomerPortalSession = exports.createGeneration = exports.consumeCredits = exports.getUserCredits = exports.stripeWebhook = exports.createPackCheckout = exports.createSubscriptionCheckout = void 0;
+exports.onUserCreated = exports.expireCreditPacks = exports.resetSubscriptionCredits = exports.createCustomerPortalSession = exports.createGeneration = exports.consumeCredits = exports.getUserCredits = exports.stripeWebhook = exports.createPackCheckout = exports.createSubscriptionCheckout = void 0;
 const admin = __importStar(require("firebase-admin"));
 // Initialize Firebase Admin
 admin.initializeApp();
@@ -51,4 +51,18 @@ Object.defineProperty(exports, "getUserCredits", { enumerable: true, get: functi
 Object.defineProperty(exports, "consumeCredits", { enumerable: true, get: function () { return operations_1.consumeCredits; } });
 Object.defineProperty(exports, "createGeneration", { enumerable: true, get: function () { return operations_1.createGeneration; } });
 Object.defineProperty(exports, "createCustomerPortalSession", { enumerable: true, get: function () { return operations_1.createCustomerPortalSession; } });
+// ====================================
+// ETAPA 4: CRON JOBS - CLOUD SCHEDULER
+// ====================================
+// Import scheduled functions
+const resetSubscriptionCredits_1 = require("./cron/resetSubscriptionCredits");
+Object.defineProperty(exports, "resetSubscriptionCredits", { enumerable: true, get: function () { return resetSubscriptionCredits_1.resetSubscriptionCredits; } });
+const expireCreditPacks_1 = require("./cron/expireCreditPacks");
+Object.defineProperty(exports, "expireCreditPacks", { enumerable: true, get: function () { return expireCreditPacks_1.expireCreditPacks; } });
+// ====================================
+// ETAPA 7: AUTH TRIGGERS
+// ====================================
+// Import auth triggers
+const onUserCreated_1 = require("./auth/onUserCreated");
+Object.defineProperty(exports, "onUserCreated", { enumerable: true, get: function () { return onUserCreated_1.onUserCreated; } });
 //# sourceMappingURL=index.js.map

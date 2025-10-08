@@ -19,6 +19,21 @@ import {
   createCustomerPortalSession,
 } from './credits/operations'
 
+// ====================================
+// ETAPA 4: CRON JOBS - CLOUD SCHEDULER
+// ====================================
+
+// Import scheduled functions
+import { resetSubscriptionCredits } from './cron/resetSubscriptionCredits'
+import { expireCreditPacks } from './cron/expireCreditPacks'
+
+// ====================================
+// ETAPA 7: AUTH TRIGGERS
+// ====================================
+
+// Import auth triggers
+import { onUserCreated } from './auth/onUserCreated'
+
 // Export credit system functions
 export {
   createSubscriptionCheckout,
@@ -28,4 +43,15 @@ export {
   consumeCredits,
   createGeneration,
   createCustomerPortalSession,
+}
+
+// Export scheduled functions
+export {
+  resetSubscriptionCredits,
+  expireCreditPacks,
+}
+
+// Export auth triggers
+export {
+  onUserCreated,
 }
