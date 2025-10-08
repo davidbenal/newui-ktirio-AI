@@ -33,130 +33,22 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.clerkWebhook = exports.createFirebaseToken = void 0;
-const functions = __importStar(require("firebase-functions"));
+exports.createCustomerPortalSession = exports.createGeneration = exports.consumeCredits = exports.getUserCredits = exports.stripeWebhook = exports.createPackCheckout = exports.createSubscriptionCheckout = void 0;
 const admin = __importStar(require("firebase-admin"));
-const svix_1 = require("svix");
 // Initialize Firebase Admin
 admin.initializeApp();
-/**
- * Cloud Function que gera Firebase Custom Tokens para usuários do Clerk
- *
- * Fluxo:
- * 1. Cliente envia userId do Clerk
- * 2. Esta função gera um Firebase Custom Token
- * 3. Cliente usa o token para autenticar no Firebase Auth
- *
- * Endpoint: https://us-central1-ktirio-ai-4540c.cloudfunctions.net/createFirebaseToken
- */
-exports.createFirebaseToken = functions.https.onCall(async (data, context) => {
-    var _a;
-    try {
-        // Extrair userId do data ou do auth context
-        const userId = data.userId || ((_a = context.auth) === null || _a === void 0 ? void 0 : _a.uid);
-        if (!userId) {
-            throw new functions.https.HttpsError('unauthenticated', 'userId is required');
-        }
-        console.log(`🔐 Creating custom token for user: ${userId}`);
-        // Criar custom token do Firebase
-        const customToken = await admin.auth().createCustomToken(userId);
-        console.log(`✅ Created custom token for user: ${userId}`);
-        return { token: customToken };
-    }
-    catch (error) {
-        console.error('❌ Error creating custom token:', error);
-        throw new functions.https.HttpsError('internal', 'Error creating Firebase custom token');
-    }
-});
-/**
- * Webhook handler para sincronizar usuários do Clerk com Firestore
- *
- * Eventos suportados:
- * - user.created: Cria novo documento de usuário
- * - user.updated: Atualiza dados do usuário
- * - user.deleted: Marca usuário como deletado (soft delete)
- */
-exports.clerkWebhook = functions.https.onRequest(async (req, res) => {
-    var _a;
-    // Verificar que é um POST request
-    if (req.method !== 'POST') {
-        res.status(405).send('Method Not Allowed');
-        return;
-    }
-    // Get webhook secret from environment
-    const webhookSecret = (_a = functions.config().clerk) === null || _a === void 0 ? void 0 : _a.webhook_secret;
-    if (!webhookSecret) {
-        console.error('❌ Clerk webhook secret not configured');
-        res.status(500).send('Webhook secret not configured');
-        return;
-    }
-    try {
-        // Verify webhook signature using Svix
-        const wh = new svix_1.Webhook(webhookSecret);
-        const payload = wh.verify(JSON.stringify(req.body), req.headers);
-        const eventType = payload.type;
-        const userData = payload.data;
-        console.log(`📨 Received Clerk webhook: ${eventType}`, userData.id);
-        switch (eventType) {
-            case 'user.created':
-                await handleUserCreated(userData);
-                break;
-            case 'user.updated':
-                await handleUserUpdated(userData);
-                break;
-            case 'user.deleted':
-                await handleUserDeleted(userData);
-                break;
-            default:
-                console.log(`ℹ️ Unhandled event type: ${eventType}`);
-        }
-        res.status(200).send('Webhook processed');
-    }
-    catch (error) {
-        console.error('❌ Webhook error:', error);
-        res.status(400).send('Invalid webhook signature');
-    }
-});
-// Helper: Create user in Firestore
-async function handleUserCreated(userData) {
-    var _a;
-    const userId = userData.id;
-    const email = ((_a = userData.email_addresses[0]) === null || _a === void 0 ? void 0 : _a.email_address) || '';
-    const name = `${userData.first_name || ''} ${userData.last_name || ''}`.trim();
-    await admin.firestore().collection('users').doc(userId).set({
-        clerkId: userId,
-        email,
-        name,
-        avatar: userData.profile_image_url,
-        plan: 'free',
-        credits: 5, // Initial free credits
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    console.log(`✅ Created user in Firestore: ${userId}`);
-}
-// Helper: Update user in Firestore
-async function handleUserUpdated(userData) {
-    var _a;
-    const userId = userData.id;
-    const email = ((_a = userData.email_addresses[0]) === null || _a === void 0 ? void 0 : _a.email_address) || '';
-    const name = `${userData.first_name || ''} ${userData.last_name || ''}`.trim();
-    await admin.firestore().collection('users').doc(userId).update({
-        email,
-        name,
-        avatar: userData.profile_image_url,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    console.log(`✅ Updated user in Firestore: ${userId}`);
-}
-// Helper: Soft delete user in Firestore
-async function handleUserDeleted(userData) {
-    const userId = userData.id;
-    await admin.firestore().collection('users').doc(userId).update({
-        deleted: true,
-        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-    console.log(`✅ Soft deleted user in Firestore: ${userId}`);
-}
+// ====================================
+// ETAPA 3: CLOUD FUNCTIONS - CRÉDITOS E STRIPE
+// ====================================
+// Import credit system functions
+const index_1 = require("./credits/index");
+Object.defineProperty(exports, "createSubscriptionCheckout", { enumerable: true, get: function () { return index_1.createSubscriptionCheckout; } });
+Object.defineProperty(exports, "createPackCheckout", { enumerable: true, get: function () { return index_1.createPackCheckout; } });
+const webhook_1 = require("./credits/webhook");
+Object.defineProperty(exports, "stripeWebhook", { enumerable: true, get: function () { return webhook_1.stripeWebhook; } });
+const operations_1 = require("./credits/operations");
+Object.defineProperty(exports, "getUserCredits", { enumerable: true, get: function () { return operations_1.getUserCredits; } });
+Object.defineProperty(exports, "consumeCredits", { enumerable: true, get: function () { return operations_1.consumeCredits; } });
+Object.defineProperty(exports, "createGeneration", { enumerable: true, get: function () { return operations_1.createGeneration; } });
+Object.defineProperty(exports, "createCustomerPortalSession", { enumerable: true, get: function () { return operations_1.createCustomerPortalSession; } });
 //# sourceMappingURL=index.js.map
