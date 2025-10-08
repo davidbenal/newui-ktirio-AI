@@ -60,8 +60,8 @@ export default function GalleryConnected(props: any) {
       }
     } catch (error) {
       console.error("❌ Error creating project:", error);
-      // Mesmo com erro, navegar pro editor se tiver Clerk user
-      if (clerkUser && props.onCreateNewProject) {
+      // Mesmo com erro, navegar pro editor se tiver user
+      if (user && props.onCreateNewProject) {
         console.log('⚠️ Error creating project in Firestore, but navigating to editor anyway');
         props.onCreateNewProject(shouldOpenUpload);
       }

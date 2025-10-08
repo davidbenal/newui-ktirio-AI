@@ -57,7 +57,7 @@ function AppContent() {
   useEffect(() => {
     const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
-    
+
     if (path.includes('/credits/success')) {
       // Handle successful credit purchase
       const sessionId = params.get('session_id');
@@ -80,7 +80,7 @@ function AppContent() {
       setCurrentView('upgrade-canceled');
     } else if (path.includes('/welcome')) {
       setCurrentView('welcome');
-      
+
       // Extract user name from URL params if available
       const params = new URLSearchParams(window.location.search);
       const name = params.get('name');
@@ -89,6 +89,23 @@ function AppContent() {
       }
     }
   }, []);
+
+  // Auto-show Welcome Screen for new users
+  useEffect(() => {
+    if (!user) return;
+
+    // Check if user has seen welcome screen (using user-specific key)
+    const hasSeenWelcomeKey = `ktirio-has-seen-welcome-${user.uid}`;
+    const hasSeenWelcome = localStorage.getItem(hasSeenWelcomeKey);
+
+    if (!hasSeenWelcome) {
+      // Extract user name from Firebase user
+      const displayName = user.displayName || user.email?.split('@')[0] || 'Usuário';
+      setUserName(displayName);
+      setCurrentView('welcome');
+      localStorage.setItem(hasSeenWelcomeKey, 'true');
+    }
+  }, [user]);
 
   const handleOpenProject = (projectId: string) => {
     setSelectedProject(projectId);

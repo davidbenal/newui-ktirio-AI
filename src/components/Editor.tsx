@@ -17,6 +17,7 @@ import {
   Loader2,
   EllipsisVertical,
   X,
+  Hand,
 } from 'lucide-react';
 import exampleImage from 'figma:asset/ac70aaa98fd35bb0ee11d9225a3a8c0883ab8066.png';
 import { useToast } from './ToastProvider';
@@ -30,6 +31,8 @@ import { useImageGeneration } from '../hooks/useImageGeneration';
 import { useFirebaseUser } from '../hooks/useFirebaseUser';
 import { updateProject } from '../lib/firestore';
 import type { ReferenceImage } from '../types/editor';
+import { useCanvasDrawing } from '../hooks/useCanvasDrawing';
+import EditPromptModal from './EditPromptModal';
 
 interface EditorProps {
   projectId: string | null;
@@ -66,14 +69,24 @@ export default function Editor({
   const [brushSize, setBrushSize] = useState(50);
   const [projectName, setProjectName] = useState(projectId ? 'Sala de Estar Clássica' : 'Novo Projeto');
   const [showProjectMenu, setShowProjectMenu] = useState(false);
-  const [isPanning, setIsPanning] = useState(false);
   const [isLoadingEditor, setIsLoadingEditor] = useState(true);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showCreditLimitModal, setShowCreditLimitModal] = useState(false);
   const [showChecklist, setShowChecklist] = useState(false);
-  const canvasRef = useRef<HTMLDivElement>(null);
-  const maskCanvasRef = useRef<HTMLCanvasElement>(null);
   const { showSuccess, showError, showInfo } = useToast();
+
+  // Hook de canvas drawing (sistema de 3 camadas)
+  const canvas = useCanvasDrawing({
+    tool: activeTool,
+    brushSize,
+    baseImage: imageGen.baseImage,
+  });
+
+  // Estado do EditPromptModal
+  const [editPromptModal, setEditPromptModal] = useState<{
+    isOpen: boolean;
+    position: { x: number; y: number };
+  }>({ isOpen: false, position: { x: 0, y: 0 } });
 
   // Progress Checklist State
   const [checklistProgress, setChecklistProgress] = useState<ChecklistProgress>({
@@ -132,15 +145,29 @@ export default function Editor({
   }, []);
 
   const tools = [
-    { id: 'select' as Tool, icon: Move, label: 'Mover' },
+    { id: 'select' as Tool, icon: Move, label: 'Seleção' },
     { id: 'brush' as Tool, icon: Pencil, label: 'Pincel' },
     { id: 'eraser' as Tool, icon: Eraser, label: 'Borracha' },
+    { id: 'move' as Tool, icon: Hand, label: 'Mover' },
   ];
 
-  // Função para extrair máscara do canvas
-  const getMaskData = (): string | null => {
-    if (!maskCanvasRef.current) return null;
-    return maskCanvasRef.current.toDataURL('image/png');
+  // Função para extrair dados do canvas baseado no modo
+  const getCanvasData = (): { instruction: string | null; mask: string | null } => {
+    return {
+      instruction: canvas.getInstructionData(),
+      mask: canvas.getMaskData(),
+    };
+  };
+
+  // Handler quando usuário termina de desenhar seleção
+  const handleSelectionComplete = (e: MouseEvent) => {
+    if (activeTool === 'select' && canvas.getMaskData()) {
+      // Abre modal próximo ao cursor
+      setEditPromptModal({
+        isOpen: true,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    }
   };
 
   // Função para salvar thumbnail antes de voltar
@@ -181,10 +208,12 @@ export default function Editor({
       return;
     }
 
-    // Verificar se desenhou máscara
-    const maskData = getMaskData();
-    if (!maskData) {
-      showError('Desenhe a área que deseja editar');
+    // Obter dados do canvas (máscara e instruções)
+    const canvasData = getCanvasData();
+
+    // Verificar se desenhou alguma instrução (brush ou máscara)
+    if (!canvasData.instruction && !canvasData.mask) {
+      showError('Desenhe a área que deseja editar ou faça marcações de instrução');
       return;
     }
 
@@ -193,9 +222,9 @@ export default function Editor({
       setChecklistProgress(prev => ({ ...prev, selectedStyle: true }));
     }
 
-    // Gerar com IA
+    // Gerar com IA - passar a máscara como função
     const result = await imageGen.handleGenerate(
-      getMaskData,
+      () => canvasData.mask,
       imageGen.prompt,
       imageGen.objectImages,
       true // Otimizar prompt
@@ -452,13 +481,13 @@ export default function Editor({
 
         {/* Canvas */}
         <div
-          ref={canvasRef}
           className={`flex-1 bg-gray-50 relative overflow-hidden ${
-            activeTool === 'move' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''
+            activeTool === 'move' ? (canvas.isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''
           }`}
-          onMouseDown={() => activeTool === 'move' && setIsPanning(true)}
-          onMouseUp={() => setIsPanning(false)}
-          onMouseLeave={() => setIsPanning(false)}
+          onMouseDown={canvas.handleMouseDown}
+          onMouseMove={canvas.handleMouseMove}
+          onMouseUp={canvas.handleMouseUp}
+          onMouseLeave={canvas.handleMouseUp}
         >
           {imageGen.currentImage ? (
             <div className="absolute inset-0 flex items-center justify-center">
@@ -467,16 +496,31 @@ export default function Editor({
                 src={imageGen.currentImage}
                 alt="Canvas"
                 className="max-w-full max-h-full shadow-2xl"
-                style={{ pointerEvents: 'none' }}
+                style={{
+                  pointerEvents: 'none',
+                  transform: `scale(${canvas.zoom}) translate(${canvas.pan.x}px, ${canvas.pan.y}px)`,
+                }}
               />
 
-              {/* Canvas de Máscara (Overlay) */}
+              {/* Canvas de Instrução (Red Brush Layer) */}
               <canvas
-                ref={maskCanvasRef}
+                ref={canvas.instructionCanvasRef}
                 className="absolute max-w-full max-h-full"
                 style={{
-                  pointerEvents: activeTool === 'brush' || activeTool === 'eraser' ? 'auto' : 'none',
-                  cursor: activeTool === 'brush' ? 'crosshair' : activeTool === 'eraser' ? 'cell' : 'default'
+                  pointerEvents: activeTool === 'brush' ? 'auto' : 'none',
+                  cursor: activeTool === 'brush' ? 'crosshair' : 'default',
+                  transform: `scale(${canvas.zoom}) translate(${canvas.pan.x}px, ${canvas.pan.y}px)`,
+                }}
+              />
+
+              {/* Canvas de Máscara (White Translucent Layer) */}
+              <canvas
+                ref={canvas.maskCanvasRef}
+                className="absolute max-w-full max-h-full"
+                style={{
+                  pointerEvents: activeTool === 'select' || activeTool === 'eraser' ? 'auto' : 'none',
+                  cursor: activeTool === 'select' ? 'crosshair' : activeTool === 'eraser' ? 'cell' : 'default',
+                  transform: `scale(${canvas.zoom}) translate(${canvas.pan.x}px, ${canvas.pan.y}px)`,
                 }}
               />
             </div>
@@ -517,15 +561,29 @@ export default function Editor({
             );
           })}
           <div className="w-px h-6 bg-gray-200 mx-1"></div>
-          <button className="p-3 rounded-full text-gray-600 hover:bg-gray-100 transition-colors">
+          <button
+            onClick={() => canvas.handleZoom(0.1)}
+            className="p-3 rounded-full text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Aumentar zoom"
+          >
             <ZoomIn className="w-5 h-5" />
           </button>
-          <button className="p-3 rounded-full text-gray-600 hover:bg-gray-100 transition-colors">
+          <button
+            onClick={() => canvas.handleZoom(-0.1)}
+            className="p-3 rounded-full text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Diminuir zoom"
+          >
             <ZoomOut className="w-5 h-5" />
           </button>
-          <button className="p-3 rounded-full text-gray-600 hover:bg-gray-100 transition-colors">
-            <RotateCcw className="w-5 h-5" />
-          </button>
+          {canvas.zoom !== 1 && (
+            <button
+              onClick={canvas.resetView}
+              className="p-3 rounded-full text-gray-600 hover:bg-gray-100 transition-colors"
+              title="Resetar visualização"
+            >
+              <RotateCcw className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Controle de Pincel - Aparece contextualmente */}
@@ -920,6 +978,24 @@ export default function Editor({
           onDismiss={() => setShowChecklist(false)}
         />
       )}
+
+      {/* Edit Prompt Modal - Para workflow de Selection */}
+      <EditPromptModal
+        isOpen={editPromptModal.isOpen}
+        position={editPromptModal.position}
+        onApply={(prompt) => {
+          // Aplicar o prompt para edição localizada
+          imageGen.setPrompt(prompt);
+          setEditPromptModal({ isOpen: false, position: { x: 0, y: 0 } });
+          // Auto-trigger geração
+          handleGenerate();
+        }}
+        onCancel={() => {
+          // Cancelar e limpar seleção
+          canvas.clearMaskLayer();
+          setEditPromptModal({ isOpen: false, position: { x: 0, y: 0 } });
+        }}
+      />
     </div>
   );
 }
