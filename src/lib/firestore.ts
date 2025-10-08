@@ -21,16 +21,21 @@ import { db } from './firebase'
 
 export interface User {
   id: string
-  clerkId: string
   email: string
   name?: string
+  displayName?: string
   avatar?: string
+  photoURL?: string
   plan: 'free' | 'starter' | 'professional'
   credits: number
-  stripeCustomerId?: string
+  role?: 'owner' | 'admin' | 'user'
+
+  // ETAPA 1.1 - Campos Stripe (expandidos)
+  stripeCustomerId?: string | null // ID do customer no Stripe, preenchido na primeira compra
   stripeSubscriptionId?: string
   stripePriceId?: string
   stripeCurrentPeriodEnd?: Date
+
   createdAt: Date
   updatedAt: Date
 }
